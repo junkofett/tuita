@@ -16,6 +16,6 @@ create table tuits(
   usuarios_id bigint        not null constraint fk_usuarios_id
                               references usuarios(id) on delete no action
                               on update cascade,
-  fecha       date         not null default CURRENT_DATE
+  fecha       timestamp     not null default current_timestamp
 );
   
