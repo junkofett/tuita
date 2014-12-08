@@ -18,4 +18,36 @@ create table tuits(
                               on update cascade,
   fecha       timestamp     not null default current_timestamp
 );
-  
+
+drop table if exists relacionados cascade;
+
+create table relacionados(
+  id_usuarios_mencionados   bigint  not null constraint fk_usuarios_id
+                                      references usuarios(id) on delete no action
+                                      on update cascade,
+  tuits_id                  bigint  not null constraint fk_tuits_id
+                                      references tuits(id) on delete no action
+                                      on update cascade,
+
+  constraint pk_relacionados primary key (id_usuarios_mencionados, tuits_id)
+);
+
+drop table if exists hashtags cascade;
+
+create table hashtags(
+  id      bigserial   constraint pk_hashtags primary key,
+  nombre  varchar(24) not null constraint uq_hash_nombre unique
+);
+
+drop table if exists hashtags_en_tuits;
+
+create table hashtags_en_tuits(
+  hashtags_id bigint  not null constraint fk_hash_id
+                        references hashtags(id) on delete no action
+                        on update cascade,
+  tuits_id    bigint  not null constraint fk_tuits_id
+                        references tuits(id) on delete no action
+                        on update cascade,
+
+  constraint pk_hash_en_tuit primary key (hashtags_id, tuits_id)
+);
