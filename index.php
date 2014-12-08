@@ -16,6 +16,7 @@
     $mensaje_final = "";
     $usuario = devolver_usuario();
 
+    //Da valor a $nick y devuelve la id del usuario en $_SESSION
     function devolver_usuario(){
       global $con;
       global $nick;
@@ -38,6 +39,8 @@
       endif;
     }
 
+    //Devuelve un array con todos los tuits generados por el usuario y los tuits
+    //                                                  donde ha sido mencionado
     function devolver_tuits(){
       global $con;
       global $usuario;
@@ -53,6 +56,9 @@
       return pg_fetch_all($res);
     }
 
+    //-----------------------------------------------------------BLOQUE HASHTAGS
+    //Devuelve un array con los nombres de hashtags que son mencionados en el
+    //                                                                  $mensaje
     function devolver_nombres_hash($mensaje){
       $expr = "/(#\w{1,24})\b/";
       $division = preg_split($expr, $mensaje, null, PREG_SPLIT_DELIM_CAPTURE);
@@ -60,6 +66,8 @@
       return preg_grep($expr, $division);
     }
 
+    //Devuelve un array con las ids de los hashtags que han sido mencionados en
+    //                                                              el $mensaje
     function devolver_ids_hashtags($mensaje){
       global $con;
 
@@ -80,6 +88,8 @@
       return $ids;
     }
 
+    //Crea los hashtags que han sido mencionados en el $mensaje y que no están
+    //                                               creados en la base de datos
     function crear_hashtags($mensaje){
       global $con;
 
@@ -97,23 +107,7 @@
       }
     }
 
-    function enlazar_usuarios($mensaje){
-      $nicks = devolver_nicks_usuarios_mencionados($mensaje);
-
-      foreach ($nicks as $nick) {
-        $index = strpos($mensaje, $nick, 0);
-
-        if($index !== FALSE):
-          $mensaje = substr_replace($mensaje, 
-                          "<a href='tuita/index.php?nick=" . 
-                                                substr($nick,1) . "'>$nick</a>", 
-                                                $index,strlen($nick));
-        endif;
-      }
-      
-      return $mensaje;
-    }
-
+    //Crea enlaces en los hashtags del mensaje
     function enlazar_hashtags($mensaje){
       $hashs = devolver_nombres_hash($mensaje);
 
@@ -122,7 +116,7 @@
 
         if($index !== FALSE):
           $mensaje = substr_replace($mensaje,
-                        "<a href='tuita/index.php?hashtag=" . 
+                        "<a href='index.php?hashtag=" . 
                                     substr($hash,1) . "'>$hash</a>", 
                                     $index, strlen($hash));
         endif;
@@ -130,7 +124,10 @@
 
       return $mensaje;
     }
+    //-------------------------------------------------------FIN BLOQUE HASHTAGS
 
+    //-----------------------------------------------------------BLOQUE USUARIOS
+    //Devuelve un array con los nicks de los usuarios mencionados en $mensaje
     function devolver_nicks_usuarios_mencionados($mensaje){
       $expr = "/(@\w{1,15})\b/";
       $division = preg_split($expr, $mensaje, null, PREG_SPLIT_DELIM_CAPTURE);
@@ -138,6 +135,7 @@
       return preg_grep($expr, $division);
     }
 
+    //Devuelve un array con los ids de los usuarios mencionados en $mensaje
     function devolver_ids_usuarios_mencionados($mensaje){
       global $con;
 
@@ -159,6 +157,27 @@
       return $ids;
     }
 
+    //Crea enlaces con los usuarios mencionados en el $mensaje aunque no existan
+    function enlazar_usuarios($mensaje){
+      $nicks = devolver_nicks_usuarios_mencionados($mensaje);
+
+      foreach ($nicks as $nick) {
+        $index = strpos($mensaje, $nick, 0);
+
+        if($index !== FALSE):
+          $mensaje = substr_replace($mensaje, 
+                          "<a href='index.php?nick=" . 
+                                                substr($nick,1) . "'>$nick</a>", 
+                                                $index,strlen($nick));
+        endif;
+      }
+      
+      return $mensaje;
+    }
+    //-------------------------------------------------------FIN BLOQUE USUARIOS
+
+    //Con el nuevo tuit insertado, se inserta en la tabla hashtags_en_tuits la
+    //                                        relacion del tuit con el hashtag
     function relacionar_hashtags($mensaje){
       global $con;
 
@@ -173,6 +192,8 @@
       }
     }
 
+    //Con el nuevo tuit insertado, se inserta en la tabla relacionados la 
+    //                                      relación del usuario con el tuit
     function relacionar_usuarios($mensaje){
       global $con;
 
@@ -212,7 +233,6 @@
 
       endif;
     }
-
 
     function pintar_tuits(){
       $tuits = devolver_tuits();
@@ -260,7 +280,16 @@
         </form>
       </article> <?php
 
-      pintar_tuits();
+      if(isset($_GET['hashtag'])){
+      //pintar_mensajes_hashtag($hashtag);
+      }else if(isset($_GET['usuario'])){
+        //pintar_mensajes_usuario($usuario);
+        }else{
+          pintar_tuits();
+        }
+
+      //CONTROLAR INSERTO DE TUIT VACÍO
+
       comprobar_errores();
     }catch(Exception $e){
       foreach ($errores as $v) { ?>
