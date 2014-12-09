@@ -3,7 +3,7 @@
 <html>
   <head>
     <meta charset="utf-8"/>
-    <title>LOGIN</title> 
+    <title>Login Tuita</title> 
   </head>
   <body><?php
     

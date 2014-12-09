@@ -16,7 +16,7 @@
     $mensaje_final = "";
     $usuario = devolver_usuario();
 
-    //Da valor a $nick y devuelve la id del usuario en $_SESSION
+    //Da valor a $nick y devuelve la id del usuario en base a $_SESSION
     function devolver_usuario(){
       global $con;
       global $nick;
@@ -41,23 +41,25 @@
 
     //Devuelve un array con todos los tuits generados por el usuario y los tuits
     //                                                  donde ha sido mencionado
-    function devolver_tuits(){
+    function devolver_tuits($id_usuario){
       global $con;
-      global $usuario;
-      
+
+      if(empty($id_usuario))
+        return array();
+
       $res = pg_query_params($con, "select mensaje, fecha
                                       from tuits left join relacionados on
                                             (tuits.id = relacionados.tuits_id)
                                      where usuarios_id = $1 
                                             or id_usuarios_mencionados = $1 
                                      group by tuits.id
-                                     order by fecha", [$usuario]);
+                                     order by fecha " . $_SESSION['orden'], [$id_usuario]);
 
       return pg_fetch_all($res);
     }
 
     //-----------------------------------------------------------BLOQUE HASHTAGS
-    //Devuelve un array con los nombres de hashtags que son mencionados en el
+    //Devuelve un array con los nombres de #hashtags que son mencionados en el
     //                                                                  $mensaje
     function devolver_nombres_hash($mensaje){
       $expr = "/(#\w{1,24})\b/";
@@ -66,7 +68,7 @@
       return preg_grep($expr, $division);
     }
 
-    //Devuelve un array con las ids de los hashtags que han sido mencionados en
+    //Devuelve un array con las ids de los #hashtags que han sido mencionados en
     //                                                              el $mensaje
     function devolver_ids_hashtags($mensaje){
       global $con;
@@ -88,7 +90,7 @@
       return $ids;
     }
 
-    //Crea los hashtags que han sido mencionados en el $mensaje y que no están
+    //Crea los #hashtags que han sido mencionados en el $mensaje y que no están
     //                                               creados en la base de datos
     function crear_hashtags($mensaje){
       global $con;
@@ -107,7 +109,7 @@
       }
     }
 
-    //Crea enlaces en los hashtags del mensaje
+    //Crea enlaces en los #hashtags del mensaje
     function enlazar_hashtags($mensaje){
       $hashs = devolver_nombres_hash($mensaje);
 
@@ -124,10 +126,48 @@
 
       return $mensaje;
     }
+
+    //Pinta todos los tuits relacionados con el $hashtag
+    function pintar_tuits_hashtag($hashtag){
+      global $con;
+      global $errores;
+
+      $hashtag = devolver_ids_hashtags('#'.$hashtag);
+
+      if(empty($hashtag) && isset($_GET['hashtag'])):
+        $errores[] = "el hashtag #".$_GET['hashtag']." no existe";
+      else:
+        $hashtag = $hashtag[0];
+        $res = pg_query_params($con, "select *
+                                        from tuits left join hashtags_en_tuits on 
+                                        (tuits.id = hashtags_en_tuits.tuits_id)
+                                       where hashtags_en_tuits.hashtags_id = $1
+                                       order by fecha " . $_SESSION['orden'], [$hashtag]);
+        if(pg_num_rows($res) != 0):
+          $tuits = pg_fetch_all($res);
+
+          pintar_boton_orden();
+
+          foreach ($tuits as $tuit):
+            $mensaje = enlazar_usuarios($tuit['mensaje']); 
+            $mensaje = enlazar_hashtags($mensaje); ?>
+            <article>
+              Mensaje:
+              <section>
+                <?= $mensaje ?>
+              </section>
+              <section>
+                Fecha: <?= $tuit['fecha'] ?>
+              </section>
+            </article> <?php
+          endforeach; 
+        endif;
+      endif;
+    }
     //-------------------------------------------------------FIN BLOQUE HASHTAGS
 
     //-----------------------------------------------------------BLOQUE USUARIOS
-    //Devuelve un array con los nicks de los usuarios mencionados en $mensaje
+    //Devuelve un array con los nicks de los @usuarios mencionados en $mensaje
     function devolver_nicks_usuarios_mencionados($mensaje){
       $expr = "/(@\w{1,15})\b/";
       $division = preg_split($expr, $mensaje, null, PREG_SPLIT_DELIM_CAPTURE);
@@ -135,9 +175,10 @@
       return preg_grep($expr, $division);
     }
 
-    //Devuelve un array con los ids de los usuarios mencionados en $mensaje
+    //Devuelve un array con los ids de los @usuarios mencionados en $mensaje
     function devolver_ids_usuarios_mencionados($mensaje){
       global $con;
+      global $errores;
 
       $nicks = devolver_nicks_usuarios_mencionados($mensaje);
       $ids = [];
@@ -153,6 +194,9 @@
           $ids[] = $fila['id'];
         endif;
       }
+
+      if(empty($ids) && isset($_GET['nick']))
+        $errores[] = "el usuario @".trim($_GET['nick'])." no existe";
 
       return $ids;
     }
@@ -193,7 +237,7 @@
     }
 
     //Con el nuevo tuit insertado, se inserta en la tabla relacionados la 
-    //                                      relación del usuario con el tuit
+    //                                      relación de los usuarios con el tuit
     function relacionar_usuarios($mensaje){
       global $con;
 
@@ -217,25 +261,38 @@
 
       $nuevomensaje = trim($_POST['nuevomensaje']);
 
-      if (strlen($nuevomensaje) > 140):
-        $mensaje_erroneo = $nuevomensaje;
-        $errores[] = "El mensaje debe ser igual o inferior a 140 caracteres";
+      if(empty($nuevomensaje)):
+        $errores[] = "El mensaje no puede estar vacío";
       else:
-        $res = pg_query($con, "begin");
-        $res = pg_query($con, "lock table tuits, hashtags, relacionados 
-                                                            in share mode");
-        $res = pg_query_params($con, "insert into tuits (mensaje, usuarios_id)
-                                                              values ($1,$2)",
+        if (strlen($nuevomensaje) > 140):
+          $mensaje_erroneo = $nuevomensaje;
+          $errores[] = "El mensaje debe ser igual o inferior a 140 caracteres";
+        else:
+          $res = pg_query($con, "begin");
+          $res = pg_query($con, "lock table tuits, hashtags, relacionados 
+                                                              in share mode");
+          $res = pg_query_params($con, "insert into tuits (mensaje, usuarios_id)
+                                                    values ($1,$2)",
                                                     [$nuevomensaje, $usuario]);
 
-        if(pg_affected_rows($res) != 1)
-          $errores[] = "No se pudo guardar el tuit";
+          if(pg_affected_rows($res) != 1):
+            $errores[] = "No se pudo guardar el tuit";
+            return FALSE;
+          else:
+            return TRUE;
+          endif;
 
+        endif;
       endif;
     }
 
-    function pintar_tuits(){
-      $tuits = devolver_tuits();
+    function pintar_tuits_usuario($usuario){
+      $tuits = devolver_tuits($usuario);
+
+      if(empty($tuits) || empty($usuario))
+        return;
+
+      pintar_boton_orden();
 
       foreach ($tuits as $tuit):
         $mensaje = enlazar_usuarios($tuit['mensaje']); 
@@ -252,6 +309,64 @@
       endforeach; 
     }
 
+    function consulta_boton_volver(){
+      global $nick;
+
+      if((isset($_GET['nick']) && trim($_GET['nick'] != $nick))){
+        return TRUE;
+      }
+
+      if(!isset($_POST['nuevomensaje']) && !isset($_GET['hashtag'])){
+          return FALSE;
+      }
+
+      if(isset($_POST['nuevomensaje']) 
+        && strlen(trim($_POST['nuevomensaje'])) < 140 
+        && strlen(trim($_POST['nuevomensaje'])) > 0 )
+        return FALSE;
+
+      return TRUE;
+    }
+
+    function pintar_boton_orden(){ ?>
+        <form action="index.php" method="GET"> <?php
+          if(isset($_GET['nick'])){ ?>
+            <input type="hidden" name="nick" value=<?= trim($_GET['nick']) ?>> <?php
+          } 
+          if(isset($_GET['hashtag'])){ ?>
+            <input type="hidden" name="hashtag" value=<?= trim($_GET['hashtag'])?> > <?php
+          }
+          if($_SESSION['orden'] == "asc"){ ?>
+            <input type="hidden" name="orden" value="desc"> 
+            <input type="submit" value="Descendente"><?php 
+          }else{?>
+            <input type="hidden" name="orden" value="asc"> 
+            <input type="submit" value="Ascendente"> <?php
+          } ?>
+        </form> <?php
+    }
+
+    function pintar_formulario_tuits(){
+      global $nick;
+      global $mensaje_erroneo; ?>
+      <p>Usuario: <?= $nick ?></p>  
+      <a href="login/logout.php"><button>Logout</button></a>
+      <article>
+        Nuevo Mensaje:
+        <form action="index.php" method="post">
+          <textarea name="nuevomensaje" cols="100" rows="10"><?= 
+            (isset($mensaje_erroneo)) ? trim($mensaje_erroneo) : ""?></textarea>
+          <br>
+          <input type="submit" value="Enviar">
+        </form> <?php 
+
+          if(consulta_boton_volver()): ?>
+            <a href="index.php"><button>Volver</button></a> <?php
+          endif; ?>
+
+      </article> <?php
+    }
+
     function comprobar_errores(){
       global $errores;
 
@@ -260,40 +375,55 @@
     }
 
     try{ 
+      if(!isset($_SESSION['orden']))
+        $_SESSION['orden'] = "asc";
+
+      if(isset($_GET['orden']))
+        $_SESSION['orden'] = trim($_GET['orden']);
+
       if(isset($_POST['nuevomensaje'])){
-        insertar_tuit();
+        if(!insertar_tuit()) 
+          pintar_formulario_tuits();
+
         comprobar_errores();
+
         crear_hashtags(trim($_POST['nuevomensaje']));
         relacionar_hashtags(trim($_POST['nuevomensaje']));
         relacionar_usuarios(trim($_POST['nuevomensaje']));
-      } ?>
-
-      <p>Usuario: <?= $nick ?></p>  
-
-      <article>
-        Nuevo Mensaje:
-        <form action="index.php" method="post">
-          <textarea name="nuevomensaje" cols="100" rows="10"><?= 
-            (isset($mensaje_erroneo)) ? trim($mensaje_erroneo) : ""?></textarea>
-          <br>
-          <input type="submit" value="Enviar">
-        </form>
-      </article> <?php
+      } 
 
       if(isset($_GET['hashtag'])){
-      //pintar_mensajes_hashtag($hashtag);
-      }else if(isset($_GET['usuario'])){
-        //pintar_mensajes_usuario($usuario);
-        }else{
-          pintar_tuits();
-        }
+        pintar_formulario_tuits(); ?>
 
-      //CONTROLAR INSERTO DE TUIT VACÍO
+        <h2> #<?=trim($_GET['hashtag'])?> </h2> <?php
+
+        pintar_tuits_hashtag(trim($_GET['hashtag']));
+        comprobar_errores();
+      }else if(isset($_GET['nick'])){
+        pintar_formulario_tuits();
+
+        if(trim($_GET['nick']) != $nick): ?>
+          <h2> @<?=trim($_GET['nick'])?> </h2> <?php
+        endif;
+
+        $id_usuario = devolver_ids_usuarios_mencionados('@'.trim($_GET['nick']));
+        comprobar_errores();
+
+        if(empty($id_usuario)):?>
+          <h3>El usuario <?= '@'.trim($_GET['nick']) ?> no existe</h3> <?php
+        else:
+          pintar_tuits_usuario($id_usuario[0]);
+        endif;
+
+      }else{
+        pintar_formulario_tuits();
+        pintar_tuits_usuario($usuario);
+      }
 
       comprobar_errores();
     }catch(Exception $e){
       foreach ($errores as $v) { ?>
-        <p><?= "Error: " . $v ?></p> <?php
+        <h3><?= "Error: " . $v ?></h3> <?php
       } 
     }finally{
       pg_query($con, "commit");
