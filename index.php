@@ -16,6 +16,12 @@
     $mensaje_final = "";
     $usuario = devolver_usuario();
 
+    $pagina_actual = 0;
+    $paginas_totales = 0;
+    $filas_por_pag = 5;
+    $primer_tuit = 0;
+    $total_tuits = 0;
+
     //Da valor a $nick y devuelve la id del usuario en base a $_SESSION
     function devolver_usuario(){
       global $con;
@@ -43,9 +49,16 @@
     //                                                  donde ha sido mencionado
     function devolver_tuits($id_usuario){
       global $con;
+      global $filas_por_pag;     
+      global $pagina_actual;
+      global $paginas_totales;
+      global $primer_tuit;
+      global $total_tuits;
 
       if(empty($id_usuario))
         return array();
+
+      paginar_usuario($id_usuario);
 
       $res = pg_query_params($con, "select mensaje, fecha
                                       from tuits left join relacionados on
@@ -53,7 +66,10 @@
                                      where usuarios_id = $1 
                                             or id_usuarios_mencionados = $1 
                                      group by tuits.id
-                                     order by fecha " . $_SESSION['orden'], [$id_usuario]);
+                                     order by fecha ".$_SESSION['orden'] ."
+                                     limit " . $filas_por_pag . "
+                                    offset " . $primer_tuit,
+                                                        [$id_usuario]);
 
       return pg_fetch_all($res);
     }
@@ -131,6 +147,8 @@
     function pintar_tuits_hashtag($hashtag){
       global $con;
       global $errores;
+      global $filas_por_pag;
+      global $primer_tuit;
 
       $hashtag = devolver_ids_hashtags('#'.$hashtag);
 
@@ -138,11 +156,18 @@
         $errores[] = "el hashtag #".$_GET['hashtag']." no existe";
       else:
         $hashtag = $hashtag[0];
+
+        paginar_hashtag($hashtag);
+
         $res = pg_query_params($con, "select *
                                         from tuits left join hashtags_en_tuits on 
                                         (tuits.id = hashtags_en_tuits.tuits_id)
                                        where hashtags_en_tuits.hashtags_id = $1
-                                       order by fecha " . $_SESSION['orden'], [$hashtag]);
+                                       order by fecha ".$_SESSION['orden']."
+                                     limit " . $filas_por_pag . "
+                                    offset " . $primer_tuit,
+                                              [$hashtag]);
+
         if(pg_num_rows($res) != 0):
           $tuits = pg_fetch_all($res);
 
@@ -162,6 +187,8 @@
             </article> <?php
           endforeach; 
         endif;
+
+        menu_paginacion();
       endif;
     }
     //-------------------------------------------------------FIN BLOQUE HASHTAGS
@@ -307,6 +334,8 @@
           </section>
         </article> <?php
       endforeach; 
+
+      menu_paginacion();
     }
 
     function consulta_boton_volver(){
@@ -367,6 +396,95 @@
       </article> <?php
     }
 
+    //---------------------------------------------------------BLOQUE PAGINACIÓN
+    function paginar_usuario($id_usuario){
+      global $con;
+      global $filas_por_pag;     
+      global $pagina_actual;
+      global $paginas_totales;
+      global $primer_tuit;
+      global $total_tuits;
+      
+      if(empty($id_usuario))
+        return array();
+
+      $res = pg_query_params($con, "select mensaje, fecha
+                                      from tuits left join relacionados on
+                                            (tuits.id = relacionados.tuits_id)
+                                     where usuarios_id = $1 
+                                            or id_usuarios_mencionados = $1 
+                                     group by tuits.id", [$id_usuario]);
+      
+      $total_tuits = count(pg_fetch_all($res));
+      $paginas_totales = ceil($total_tuits / $filas_por_pag);
+
+      if(isset($_GET['pag']))
+        $pagina_actual = (int)$_GET['pag'];
+
+      if($pagina_actual < 1)
+        $pagina_actual = 1;
+      else if($pagina_actual > $paginas_totales)
+        $pagina_actual = $paginas_totales;
+
+
+      $primer_tuit = ($pagina_actual - 1) * $filas_por_pag;
+    }
+
+    function paginar_hashtag($hashtag){      
+      global $con;
+      global $filas_por_pag;     
+      global $pagina_actual;
+      global $paginas_totales;
+      global $primer_tuit;
+      global $total_tuits;
+
+      $res = pg_query_params($con, "select *
+                                      from tuits left join hashtags_en_tuits on 
+                                        (tuits.id = hashtags_en_tuits.tuits_id)
+                                     where hashtags_en_tuits.hashtags_id = $1", 
+                                                        [$hashtag]);
+      
+      $total_tuits = count(pg_fetch_all($res));
+      $paginas_totales = ceil($total_tuits / $filas_por_pag);
+
+      if(isset($_GET['pag']))
+        $pagina_actual = (int)$_GET['pag'];
+
+      if($pagina_actual < 1)
+        $pagina_actual = 1;
+      else if($pagina_actual > $paginas_totales)
+        $pagina_actual = $paginas_totales;
+
+
+      $primer_tuit = ($pagina_actual - 1) * $filas_por_pag;
+    }
+
+    function menu_paginacion(){
+      global $con;
+      global $filas_por_pag;     
+      global $pagina_actual;
+      global $paginas_totales;
+      global $primer_tuit;
+      global $total_tuits;
+
+      for ($i=1; $i <= $paginas_totales; $i++) {
+        if($i == $pagina_actual){ ?>
+          <span> <?= $i ?> </span> <?php ;
+        }
+        else if($i == 1 || $i == $paginas_totales 
+                || ($i >= $pagina_actual - 2 && $i <= $pagina_actual + 2)){ 
+
+        $href = "?pag=$i";
+        $href .= (isset($GET['orden'])) ? "&orden=".$_GET['orden'] : "";
+        $href .= (isset($GET['nick'])) ? "&nick=".$_GET['nick'] : "";
+        $href .= (isset($GET['hashtag'])) ? "&hashtag=".$_GET['hashtag'] : ""; ?>
+        <a href="<?= $href ?>"> <?= $i ?> </a> <?php ;
+        }
+      }
+
+    }
+    //-----------------------------------------------------FIN BLOQUE PAGINACIÓN
+
     function comprobar_errores(){
       global $errores;
 
@@ -374,7 +492,7 @@
         throw new Exception();    
     }
 
-    try{ 
+    try{
       if(!isset($_SESSION['orden']))
         $_SESSION['orden'] = "asc";
 
